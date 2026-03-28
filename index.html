@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body{margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:#222;font-family:Arial}
+canvas{border:2px solid #fff;background:#000}
+</style>
+</head>
+<body>
+<canvas id="c" width="200" height="400"></canvas>
+<script>
+const c=document.getElementById('c'),ctx=c.getContext('2d'),w=10,h=20,s=20;
+let g=Array(h).fill().map(()=>Array(w).fill(0)),p,d=0;
+
+const T={I:[[1,1,1,1]],O:[[1,1],[1,1]],T:[[0,1,0],[1,1,1]],S:[[0,1,1],[1,1,0]],Z:[[1,1,0],[0,1,1]],L:[[1,0],[1,0],[1,1]],J:[[0,1],[0,1],[1,1]]};
+const C={I:'cyan',O:'yellow',T:'purple',S:'green',Z:'red',L:'orange',J:'blue'};
+
+function spawn(){
+  const k=Object.keys(T),t=k[Math.floor(Math.random()*k.length)];
+  p={sh:T[t],x:3,y:0,t:t,c:C[t]};
+  if(!canPlace(p.x,p.y,p.sh))end();
+}
+
+function canPlace(x,y,sh){
+  for(let i=0;i<sh.length;i++)for(let j=0;j<sh[i].length;j++)
+    if(sh[i][j]&&(x+j<0||x+j>=w||y+i<0||y+i>=h||g[y+i]?.[x+j]))return 0;
+  return 1;
+}
+
+function place(x,y,sh){
+  for(let i=0;i<sh.length;i++)for(let j=0;j<sh[i].length;j++)
+    if(sh[i][j])g[y+i][x+j]=p.c;
+}
+
+function rotate(){
+  const n=p.sh[0].length,m=p.sh.length,r=Array(n).fill().map(()=>Array(m));
+  for(let i=0;i<m;i++)for(let j=0;j<n;j++)r[n-1-j][i]=p.sh[i][j];
+  if(canPlace(p.x,p.y,r))p.sh=r;
+}
+
+function clearLines(){
+  for(let i=h-1;i>=0;i--){
+    if(g[i].every(x=>x))g.splice(i,1),g.unshift(Array(w).fill(0));
+  }
+}
+
+function draw(){
+  ctx.fillStyle='#000';ctx.fillRect(0,0,c.width,c.height);
+  for(let i=0;i<h;i++)for(let j=0;j<w;j++){
+    if(g[i][j]){ctx.fillStyle=g[i][j];ctx.fillRect(j*s,i*s,s-1,s-1);}
+    ctx.strokeStyle='#333';ctx.strokeRect(j*s,i*s,s,s);
+  }
+  if(p)for(let i=0;i<p.sh.length;i++)for(let j=0;j<p.sh[i].length;j++)
+    if(p.sh[i][j]){ctx.fillStyle=p.c;ctx.fillRect((p.x+j)*s,(p.y+i)*s,s-1,s-1);}
+}
+
+function tick(){
+  if(!p)spawn();
+  else if(canPlace(p.x,p.y+1,p.sh))p.y++;
+  else{place(p.x,p.y,p.sh);clearLines();p=null;}
+  draw();
+}
+
+function end(){p=null;}
+
+document.onkeydown=e=>{
+  if(!p)return;
+  if(e.key==='ArrowLeft'&&canPlace(p.x-1,p.y,p.sh))p.x--;
+  if(e.key==='ArrowRight'&&canPlace(p.x+1,p.y,p.sh))p.x++;
+  if(e.key==='ArrowDown'){while(canPlace(p.x,p.y+1,p.sh))p.y++;}
+  if(e.key==='ArrowUp')rotate();
+  draw();
+};
+
+spawn();
+setInterval(tick,400);
+</script>
+</body>
+</html>
