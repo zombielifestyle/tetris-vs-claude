@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pixel Art Maze - Dithered Shadows</title>
+    <style>
+        body { 
+            background: #121212; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            overflow: hidden; 
+            perspective: 1000px;
+        }
+        canvas { 
+            /*image-rendering: pixelated; */
+            transform-origin: center center;
+            transition: transform 0.1s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="mazeCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('mazeCanvas');
+const cols = 21, rows = 21; 
+const cellSize = 32;
+canvas.width = cols * cellSize;
+canvas.height = rows * cellSize;
+const ctx = canvas.getContext('2d');
+
+const pixelSize = 4; 
+const T_FLOOR = 0;
+const T_WALL = 1;
+const maxTilt = 15;
+
+const ball = {
+    x: cellSize + 16 + 2,
+    y: cellSize + 16 + 2,
+    vx: 0,
+    vy: 0,
+    radius: 8,
+    gravity: 0.2,
+    bounce: 0.6,
+    friction: 0.95  // Air/floor resistance
+};
+const ditherPattern = createDitherPattern();
+
+const grid = generateMaze(cols, rows);
+const shadowOffset = 8;
+const centerX = canvas.width / 2;
+const centerY = canvas.height / 2;
+const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+
+function createCaches() {
+    wallTileCache = new TileCache(cellSize, cellSize, 20)
+    for (let i = 0; i < 20; i++) {
+        wallTileCache.generate(i, drawTileWall)
+    }
+    floorTileCache = new TileCache(cellSize, cellSize, 20)
+    for (let i = 0; i < 20; i++) {
+        floorTileCache.generate(i, drawTileFloor)
+    }
+}
+
+document.body.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+});
+
+function createDitherPattern() {
+    const ditherCanvas = document.createElement('canvas');
+    ditherCanvas.width = 8; // 2 "art" pixels wide
+    ditherCanvas.height = 8;
+    const dCtx = ditherCanvas.getContext('2d');
+    // ctx.fillStyle = 'rgba(20, 20, 50, 0.3)';
+    // dCtx.fillStyle = 'rgba(15, 15, 40, 0.4)';
+    dCtx.fillStyle = 'rgba(20, 20, 50, 0.4)';
+    dCtx.fillRect(0, 0, 4, 4);
+    dCtx.fillRect(4, 4, 4, 4);
+    return ctx.createPattern(ditherCanvas, 'repeat');
+}
+
+function generateMaze(w, h) {
+    let maze = Array.from({ length: h }, () => Array(w).fill(1));
+    let stack = [{x: 1, y: 1}];
+    maze[1][1] = 0;
+    while (stack.length > 0) {
+        let curr = stack[stack.length - 1];
+        let dirs = [[0, -2], [0, 2], [-2, 0], [2, 0]].sort(() => Math.random() - 0.5);
+        let found = false;
+        for (let [dx, dy] of dirs) {
+            let nx = curr.x + dx, ny = curr.y + dy;
+            if (nx > 0 && nx < w - 1 && ny > 0 && ny < h - 1 && maze[ny][nx] === 1) {
+                maze[ny - dy/2][nx - dx/2] = 0; 
+                maze[ny][nx] = 0;
+                stack.push({x: nx, y: ny}); 
+                found = true; 
+                break;
+            }
+        }
+        if (!found) stack.pop();
+    }
+    return maze;
+}
+
+function drawTileWall(ctx) {
+    for (let i = 0; i < cellSize; i += pixelSize) {
+        for (let j = 0; j < cellSize; j += pixelSize) {
+            let v = Math.random() * 20;
+            ctx.fillStyle = `rgb(${70+v}, ${70+v}, ${85+v})`;
+            ctx.fillRect(i, j, pixelSize, pixelSize);
+        }
+    }
+}
+
+function drawTileFloor(ctx) {
+    for (let i = 0; i < cellSize; i += pixelSize) {
+        for (let j = 0; j < cellSize; j += pixelSize) {
+            let v = Math.random() * 20;
+            ctx.fillStyle = `rgb(${50+v}, ${35+v}, ${25+v})`;
+            ctx.fillRect(i, j, pixelSize, pixelSize);
+        }
+    }
+}
+
+class TileCache {
+    constructor(tileWidth, tileHeight, tileCount) {
+        this.tw = tileWidth;
+        this.th = tileHeight;
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = tileWidth * tileCount;
+        this.canvas.height = tileHeight;
+        this.ctx = this.canvas.getContext('2d');
+    }
+
+    generate(tileId, drawFn) {
+        const x = tileId * this.tw;
+        this.ctx.save();
+        this.ctx.translate(x, 0);
+        drawFn(this.ctx);
+        this.ctx.restore();
+    }
+
+    renderTile(mainCtx, tileId, destX, destY) {
+        mainCtx.drawImage(
+            this.canvas,
+            tileId * this.tw, 0, this.tw, this.th,
+            destX, destY, this.tw, this.th
+        );
+    }
+}
+
+function drawFloor(ctx) {
+    let i = 0;
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            if (grid[y][x] === T_FLOOR) {
+                if (++i >= 20) i = 0;
+                floorTileCache.renderTile(ctx, i, x * cellSize, y * cellSize)
+                // drawTile(x * cellSize, y * cellSize, T_FLOOR);
+            }
+        }
+    }
+}
+
+function drawWalls(ctx) {
+    let i = 0;
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            if (grid[y][x] === T_WALL) {
+                if (++i >= 20) i = 0;
+                wallTileCache.renderTile(ctx, i, x * cellSize, y * cellSize)
+                // drawTile(x * cellSize, y * cellSize, T_WALL);
+            }
+        }
+    }
+}
+
+function drawShadows() {
+    const offsetX = (mouse.x - centerX) / centerX;
+    const offsetY = (mouse.y - centerY) / centerY;
+
+    const maxShadow = 6; 
+    const shadowX = offsetX * maxShadow;
+    const shadowY = offsetY * maxShadow;
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] === T_WALL) {
+                let x = c * cellSize, y = r * cellSize;
+                
+                let fx = shadowX > 0 ? cellSize : -cellSize;
+                let fy = shadowY > 0 ? cellSize : -cellSize;
+                // shadow
+                ctx.fillStyle = 'rgba(20, 20, 50, 0.3)';
+                ctx.fillRect(x+shadowX, y+shadowY, cellSize, cellSize);
+
+                // dithered edge
+                ctx.fillStyle = ditherPattern;
+                let o = Math.floor(shadowX * 0.2);
+                ctx.fillRect(x + shadowX + o, y + shadowY + o, cellSize + 4, cellSize + 4);
+
+                // contact shadow
+                const contactShadowY = shadowY > 0 ? y+cellSize-1 : y-3;
+                const contactShadowX = shadowX > 0 ? x+cellSize-1 : x-3;
+                const distLineX = Math.abs((mouse.x - centerX) / centerX);
+                const distLineY = Math.abs((mouse.y - centerY) / centerY);
+                const maxDist = Math.max(distLineX, distLineY);
+                const intensity = Math.pow(maxDist, 2); 
+                const shadowOpacity = Math.min(0.4, intensity * 0.2);
+
+                ctx.fillStyle = 'rgba(20, 20, 50, '+(shadowOpacity)+')';
+                ctx.fillRect(x, contactShadowY, cellSize, 4);
+                ctx.fillRect(contactShadowX, y, 4, cellSize);
+            }
+        }
+    }
+}
+
+let cloudOffset = 0;
+const cloudCanvas = document.createElement('canvas');
+let cCtx = cloudCanvas.getContext('2d');
+cloudCanvas.width = canvas.width / 4;
+cloudCanvas.height = canvas.height / 4;
+ctx.imageSmoothingEnabled = false;
+
+function drawClouds(delta, ctx) {
+    cCtx.clearRect(0, 0, cloudCanvas.width, cloudCanvas.height);
+    
+    // Slow movement: roughly 10 "sub-pixels" per second
+    cloudOffset += 0.005 * delta; 
+    
+    // cCtx.fillStyle = ditherPattern;
+    // cCtx.fillStyle = ditherPattern;
+    cCtx.fillStyle = 'rgba(20, 20, 50, 0.4)';
+
+    
+    // Draw a few "blobs" (clouds) on the tiny canvas
+    // Using Math.floor ensures the clouds "snap" to the 4x4 grid
+    // const x = Math.floor(cloudOffset % (cloudCanvas.width + 100)) - 50;
+    const x = (cloudOffset % (cloudCanvas.width + 100)) - 50;
+    
+    let cw = cloudCanvas.width;
+    let ch = cloudCanvas.height;
+
+    cCtx.beginPath();
+    cCtx.arc(x, (ch*.2), cw*.2, 0, Math.PI * 2);
+    cCtx.arc(x + (cw*.1), ch*.3, cw*.2, 0, Math.PI * 2);
+    cCtx.fill();
+
+    cCtx.beginPath();
+    cCtx.arc(x - (cw*.5), ch*.79, cw*.1, 0, Math.PI * 2);
+    cCtx.arc(x - (cw*.6), ch*.80, cw*.1, 0, Math.PI * 2);
+    cCtx.fill();
+
+    // cCtx.beginPath();
+    // cCtx.arc(x, 40, 30, 0, Math.PI * 2);
+    // cCtx.arc(x + 20, 50, 25, 0, Math.PI * 2);
+    // cCtx.fill();
+
+    // Now, draw the tiny canvas onto the main canvas, scaled up 4x
+    ctx.save();
+    ctx.globalCompositeOperation = 'darken'; // Better for "darken" shadows
+    ctx.globalAlpha = 0.4; // Keep it subtle
+    
+    // The "Secret Sauce": Draw the 1/4 size canvas to full size
+    ctx.drawImage(cloudCanvas, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+}
+
+function updateBall(delta) {
+
+    // 1. Calculate Acceleration based on tilt (-1 to 1)
+    const ax = (mouse.x - centerX) / centerX;
+    const ay = (mouse.y - centerY) / centerY;
+
+    // We multiply by (delta / 16.67) to normalize for 60fps
+    const dt = delta / 16.67;
+    ball.vx += ax * ball.gravity * dt;
+    ball.vy += ay * ball.gravity * dt;
+
+    // 3. Apply Friction (optional, makes it easier to control)
+    ball.vx *= ball.friction;
+    ball.vy *= ball.friction;
+
+    // 4. Predict next position
+    let nextX = ball.x + ball.vx * dt;
+    let nextY = ball.y + ball.vy * dt;
+
+    checkWallCollisions(nextX, nextY);
+}
+
+function drawBall() {
+    const sx = (ball.x - (canvas.width / 2)) * 0.03;
+    const sy = (ball.y - (canvas.height / 2)) * 0.03;
+
+    // Shadow
+    ctx.fillStyle = "rgba(0,0,0,0.2)";
+    ctx.beginPath();
+    ctx.arc(ball.x + sx, ball.y + sy, ball.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // The Marble
+    ctx.fillStyle = "#436055";
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Add a little highlight for 3D effect
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.beginPath();
+    ctx.arc(ball.x - 3, ball.y - 3, 2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function checkWallCollisions(nextX, nextY) {
+    const r = ball.radius;
+    const buffer = 0.01; // Tiny epsilon to prevent rounding errors
+
+    // --- X-AXIS ---
+    // If moving right, check right edge. If moving left, check left edge.
+    let leadingX = ball.vx > 0 ? nextX + r : nextX - r;
+    let tileX = Math.floor(leadingX / cellSize);
+    let currentTileY = Math.floor(ball.y / cellSize);
+
+    // Wall hit on X?
+    if (grid[currentTileY] && grid[currentTileY][tileX] === 1) {
+        ball.vx *= -ball.bounce;
+        // Snap to edge: if moving right, snap to left side of tile.
+        if (ball.vx < 0) ball.x = tileX * cellSize - r - buffer; 
+        else ball.x = (tileX + 1) * cellSize + r + buffer;
+    } else {
+        ball.x = nextX;
+    }
+
+    // --- Y-AXIS ---
+    let leadingY = ball.vy > 0 ? nextY + r : nextY - r;
+    let tileY = Math.floor(leadingY / cellSize);
+    let currentTileX = Math.floor(ball.x / cellSize);
+
+    // Wall hit on Y?
+    if (grid[tileY] && grid[tileY][currentTileX] === 1) {
+        ball.vy *= -ball.bounce;
+        // Snap to edge: if moving down, snap to top side of tile.
+        if (ball.vy < 0) ball.y = tileY * cellSize - r - buffer;
+        else ball.y = (tileY + 1) * cellSize + r + buffer;
+    } else {
+        ball.y = nextY;
+    }
+}
+
+function updatePerspective() {
+    const tiltX = (mouse.y - centerY) / centerY; 
+    const tiltY = (mouse.x - centerX) / centerX;
+
+    canvas.style.transform = `
+        rotateX(${-tiltX * maxTilt}deg) 
+        rotateY(${tiltY * maxTilt}deg)
+    `;
+}
+
+let lastTime = performance.now();
+
+function gameLoop(now) {
+    requestAnimationFrame(gameLoop);
+    const delta = now - lastTime;
+    lastTime = now;
+    const cappedDelta = Math.min(delta, 100);
+
+    update(cappedDelta);
+    draw(delta);
+}
+
+function update(delta) {
+    updateBall(delta);
+}
+
+function draw(delta) {
+    ctx.drawImage(floorImage, 0, 0);
+    drawShadows();
+    drawBall();
+    ctx.drawImage(wallImage, 0, 0);
+    drawClouds(delta, ctx);
+    updatePerspective();
+
+    if (delta > 0) {
+        const fps = Math.round(1000 / delta);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(canvas.width - 80, 0, 80, 30);
+        ctx.fillStyle = 'white';
+        ctx.font = '16px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${fps} FPS`, canvas.width - 10, 20);
+    }
+}
+
+function drawFloorImage() {
+    let canvas = document.createElement('canvas');
+    canvas.width = cellSize * cols;
+    canvas.height = cellSize * rows;
+    let ctx = canvas.getContext('2d');
+    drawFloor(ctx);
+    floorImage = canvas;
+}
+function drawWallImage() {
+    let canvas = document.createElement('canvas');
+    canvas.width = cellSize * cols;
+    canvas.height = cellSize * rows;
+    let ctx = canvas.getContext('2d');
+    drawWalls(ctx);
+    wallImage = canvas;
+}
+createCaches();
+drawFloorImage();
+drawWallImage();
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
